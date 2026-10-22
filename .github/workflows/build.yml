@@ -1,0 +1,46 @@
+name: build-windows
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    env:
+      # 给 MSVC 加几个兼容老代码的编译选项
+      CL: /D_USE_MATH_DEFINES /DNOMINMAX /bigobj /EHsc
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download libigl and Eigen
+        shell: bash
+        run: |
+          cd ..
+          git clone --depth 1 --branch v2.0.0 --recursive https://github.com/libigl/libigl.git
+          git clone --depth 1 --branch 3.3.7 https://gitlab.com/libeigen/eigen.git
+
+      - name: Show CMakeLists (for debugging)
+        shell: bash
+        run: cat CMakeLists.txt
+
+      - name: Configure
+        shell: bash
+        run: |
+          LIBIGL_PATH="$(cd ../libigl && pwd -W)"
+          EIGEN_PATH="$(cd ../eigen && pwd -W)"
+          export LIBIGL="$LIBIGL_PATH"
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 \
+            -DLIBIGL_DIR="$LIBIGL_PATH" \
+            -DLIBIGL_INCLUDE_DIR="$LIBIGL_PATH/include" \
+            -DEIGEN3_INCLUDE_DIR="$EIGEN_PATH" \
+            -DCMAKE_PREFIX_PATH="$EIGEN_PATH"
+
+      - name: Build
+        run: cmake --build build --config Release -j 4
+
+      - name: Upload exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: decimater-windows
+          path: build/**/*.exe
