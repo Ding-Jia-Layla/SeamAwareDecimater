@@ -10,42 +10,54 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Download libigl and Eigen
+      - name: Download Eigen
         shell: bash
         run: |
           cd ..
-          git clone --depth 1 --branch v2.0.0 --recursive https://github.com/libigl/libigl.git
           git clone --depth 1 --branch 3.3.7 https://gitlab.com/libeigen/eigen.git
 
-      - name: Patch circulation calls (add F argument)
-        shell: bash
-        run: |
-          echo "=== before ==="
-          grep -n "circulation(" collapse_edge_seam.cpp || true
-          perl -0pi -e 's/\bcirculation\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*,(?!\s*F\s*,)/circulation($1, $2, F,/g' collapse_edge_seam.cpp
-          echo "=== after ==="
-          grep -n "circulation(" collapse_edge_seam.cpp || true
-          echo "=== libigl circulation signature ==="
-          grep -n -A8 "IGL_INLINE" ../libigl/include/igl/circulation.h | head -40
-
-      - name: Configure
+      - name: Try libigl versions and build
         shell: pwsh
         run: |
-          $LIBIGL = (Resolve-Path ..\libigl).Path -replace '\\','/'
-          $EIGEN  = (Resolve-Path ..\eigen).Path  -replace '\\','/'
-          $env:LIBIGL = $LIBIGL
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
-            "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" `
-            "-DLIBIGL_DIR=$LIBIGL" `
-            "-DLIBIGL_INCLUDE_DIR=$LIBIGL/include" `
-            "-DEIGEN3_INCLUDE_DIR=$EIGEN" `
-            "-DEIGEN_INCLUDE_DIR=$EIGEN" `
-            "-DCMAKE_PREFIX_PATH=$EIGEN" `
-            "-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /W0 /GR /EHsc /D_USE_MATH_DEFINES /DNOMINMAX /bigobj /MP"
+          $ErrorActionPreference = 'Continue'
+          $EIGEN = (Resolve-Path ..\eigen).Path -replace '\\','/'
+          $tags = @('v2.1.0', 'v2.2.0', 'v2.3.0')
+          $ok = $false
 
-      - name: Build
-        shell: pwsh
-        run: cmake --build build --config Release
+          foreach ($t in $tags) {
+            Write-Host ""
+            Write-Host "################ Trying libigl $t ################"
+            if (Test-Path ..\libigl) { Remove-Item -Recurse -Force ..\libigl }
+            if (Test-Path build)     { Remove-Item -Recurse -Force build }
+
+            git clone --depth 1 --branch $t https://github.com/libigl/libigl.git ../libigl 2>&1 | Out-Host
+            $LIBIGL = (Resolve-Path ..\libigl).Path -replace '\\','/'
+            $env:LIBIGL = $LIBIGL
+
+            Write-Host "--- circulation.h signature in $t ---"
+            Get-Content ..\libigl\include\igl\circulation.h | Select-String -Pattern "IGL_INLINE|const " | Out-Host
+
+            cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+              "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" `
+              "-DLIBIGL_DIR=$LIBIGL" `
+              "-DLIBIGL_INCLUDE_DIR=$LIBIGL/include" `
+              "-DEIGEN3_INCLUDE_DIR=$EIGEN" `
+              "-DEIGEN_INCLUDE_DIR=$EIGEN" `
+              "-DCMAKE_PREFIX_PATH=$EIGEN" `
+              "-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /W0 /GR /EHsc /D_USE_MATH_DEFINES /DNOMINMAX /bigobj /MP"
+            if ($LASTEXITCODE -ne 0) { Write-Host ">>> Configure FAILED with $t"; continue }
+
+            cmake --build build --config Release
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host ">>> SUCCESS with libigl $t"
+              $ok = $true
+              break
+            }
+            Write-Host ">>> Build FAILED with $t"
+          }
+
+          if (-not $ok) { Write-Host "All libigl versions failed"; exit 1 }
+          exit 0
 
       - name: Upload exe
         uses: actions/upload-artifact@v4
