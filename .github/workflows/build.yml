@@ -17,9 +17,16 @@ jobs:
           git clone --depth 1 --branch v2.0.0 --recursive https://github.com/libigl/libigl.git
           git clone --depth 1 --branch 3.3.7 https://gitlab.com/libeigen/eigen.git
 
-      - name: Show CMakeLists (for debugging)
+      - name: Patch circulation calls (add F argument)
         shell: bash
-        run: cat CMakeLists.txt
+        run: |
+          echo "=== before ==="
+          grep -n "circulation(" collapse_edge_seam.cpp || true
+          perl -0pi -e 's/\bcirculation\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*,(?!\s*F\s*,)/circulation($1, $2, F,/g' collapse_edge_seam.cpp
+          echo "=== after ==="
+          grep -n "circulation(" collapse_edge_seam.cpp || true
+          echo "=== libigl circulation signature ==="
+          grep -n -A8 "IGL_INLINE" ../libigl/include/igl/circulation.h | head -40
 
       - name: Configure
         shell: pwsh
@@ -34,7 +41,7 @@ jobs:
             "-DEIGEN3_INCLUDE_DIR=$EIGEN" `
             "-DEIGEN_INCLUDE_DIR=$EIGEN" `
             "-DCMAKE_PREFIX_PATH=$EIGEN" `
-            "-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /W3 /GR /EHsc /D_USE_MATH_DEFINES /DNOMINMAX /bigobj /MP"
+            "-DCMAKE_CXX_FLAGS=/DWIN32 /D_WINDOWS /W0 /GR /EHsc /D_USE_MATH_DEFINES /DNOMINMAX /bigobj /MP"
 
       - name: Build
         shell: pwsh
